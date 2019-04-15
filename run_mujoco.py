@@ -13,25 +13,36 @@ from ppo_agent import PpoAgent
 from utils import set_global_seeds
 from vec_env import VecFrameStack
 import datetime
+from baselines.common.vec_env import VecNormalize
+from baselines.common.cmd_util import make_vec_env
+
+
+def make_mujoco_env(env_id, seed, reward_scale=1.0):
+    env = make_vec_env(env_id, "mujoco", num_env=1, seed=seed, reward_scale=reward_scale,
+                       flatten_dict_observations=True)
+    env = VecNormalize(env)
+    return env
 
 
 def train(*, env_id, num_env, hps, num_timesteps, seed):
-    venv = VecFrameStack(
-        make_atari_env(env_id, num_env, seed, wrapper_kwargs=dict(),
-                       start_index=num_env * MPI.COMM_WORLD.Get_rank(),
-                       max_episode_steps=hps.pop('max_episode_steps')),
-        hps.pop('frame_stack'))
-    # venv.score_multiple = {'Mario': 500,
-    #                        'MontezumaRevengeNoFrameskip-v4': 100,
-    #                        'GravitarNoFrameskip-v4': 250,
-    #                        'PrivateEyeNoFrameskip-v4': 500,
-    #                        'SolarisNoFrameskip-v4': None,
-    #                        'VentureNoFrameskip-v4': 200,
-    #                        'PitfallNoFrameskip-v4': 100,
-    #                        }[env_id]
-    venv.score_multiple = 1
-    venv.record_obs = True if env_id == 'SolarisNoFrameskip-v4' else False
-
+    # venv = VecFrameStack(
+    #     make_atari_env(env_id, num_env, seed, wrapper_kwargs=dict(),
+    #                    start_index=num_env * MPI.COMM_WORLD.Get_rank(),
+    #                    max_episode_steps=hps.pop('max_episode_steps')),
+    #     hps.pop('frame_stack'))
+    # # venv.score_multiple = {'Mario': 500,
+    # #                        'MontezumaRevengeNoFrameskip-v4': 100,
+    # #                        'GravitarNoFrameskip-v4': 250,
+    # #                        'PrivateEyeNoFrameskip-v4': 500,
+    # #                        'SolarisNoFrameskip-v4': None,
+    # #                        'VentureNoFrameskip-v4': 200,
+    # #                        'PitfallNoFrameskip-v4': 100,
+    # #                        }[env_id]
+    # venv.score_multiple = 1
+    # venv.record_obs = True if env_id == 'SolarisNoFrameskip-v4' else False
+    venv = make_mujoco_env(env_id, seed, reward_scale=1.0)
+    setattr(venv, "score_multiple", 1.0)
+    setattr(venv, "record_obs", False)
     ob_space = venv.observation_space
     ac_space = venv.action_space
     gamma = hps.pop('gamma')
@@ -68,8 +79,9 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
     )
     agent.start_interaction([venv])
     if hps.pop('update_ob_stats_from_random_agent'):
-        agent.collect_random_statistics(num_timesteps=128*50)
-    assert len(hps) == 0, "Unused hyperparameters: %s" % list(hps.keys())
+        agent.collect_random_statistics(num_timesteps=128*10)
+    if len(hps) != 0:
+        logger.info("warning!Unused hyperparameters: %s" % list(hps.keys()))
 
     counter = 0
     while True:
@@ -85,7 +97,7 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
 
 
 def add_env_params(parser):
-    parser.add_argument('--env', help='environment ID', default='MontezumaRevengeNoFrameskip-v4')
+    parser.add_argument('--env', help='environment ID', default='HalfCheetah-v2')
     parser.add_argument('--seed', help='RNG seed', type=int, default=0)
     parser.add_argument('--max_episode_steps', type=int, default=4500)
 
@@ -93,7 +105,7 @@ def add_env_params(parser):
 def main():
     parser = arg_parser()
     add_env_params(parser)
-    parser.add_argument('--num-timesteps', type=int, default=int(1e12))
+    parser.add_argument('--num-timesteps', type=int, default=int(1e6))
     parser.add_argument('--num_env', type=int, default=1)
     parser.add_argument('--use_news', type=int, default=0)
     parser.add_argument('--gamma', type=float, default=0.99)
@@ -125,7 +137,7 @@ def main():
 
     hps = dict(
         frame_stack=4,
-        nminibatches=4,
+        nminibatches=1,   # 4
         nepochs=4,
         lr=0.0001,
         max_grad_norm=0.0,

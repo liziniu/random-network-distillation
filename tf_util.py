@@ -54,7 +54,9 @@ def make_session(num_cpu=None, make_default=False, graph=None):
         num_cpu = int(os.getenv('RCALL_NUM_CPU', multiprocessing.cpu_count()))
     tf_config = tf.ConfigProto(
         inter_op_parallelism_threads=num_cpu,
-        intra_op_parallelism_threads=num_cpu)
+        intra_op_parallelism_threads=num_cpu,
+        allow_soft_placement=True)
+    tf_config.gpu_options.allow_growth = True
     if make_default:
         return tf.InteractiveSession(config=tf_config, graph=graph)
     else:

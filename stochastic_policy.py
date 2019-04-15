@@ -39,11 +39,9 @@ class StochasticPolicy(object):
             self.ph_ob_keys = [None]
             self.ph_ob_dtypes = { None: box.dtype }
             shapes = { None: box.shape }
-        self.ph_ob = OrderedDict([(k, tf.placeholder(
-                canonical_dtype(self.ph_ob_dtypes[k]),
-                (None, None,) + tuple(shapes[k]),
-                name=(('obs/%s'%k) if k is not None else 'obs')
-            )) for k in self.ph_ob_keys ])
+        self.ph_ob = OrderedDict([(k, tf.placeholder(canonical_dtype(self.ph_ob_dtypes[k]), (None, None,) + tuple(shapes[k]),
+                name=(('obs/%s'%k) if k is not None else 'obs'))
+                ) for k in self.ph_ob_keys ])
         assert list(self.ph_ob.keys())==self.ph_ob_keys, "\n%s\n%s\n" % (list(self.ph_ob.keys()), self.ph_ob_keys)
         ob_shape = tf.shape(next(iter(self.ph_ob.values())))
         self.sy_nenvs  = ob_shape[0]

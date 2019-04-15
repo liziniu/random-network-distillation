@@ -198,6 +198,8 @@ class RunningMeanStd(object):
         self.update_from_moments(batch_mean, batch_var, batch_count)
 
     def update_from_moments(self, batch_mean, batch_var, batch_count):
+        batch_mean = np.reshape(batch_mean, tuple(np.shape(self.mean)))
+        batch_var = np.reshape(batch_var, tuple(np.shape(self.var)))
         delta = batch_mean - self.mean
         tot_count = self.count + batch_count
 

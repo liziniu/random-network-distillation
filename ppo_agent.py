@@ -206,17 +206,23 @@ class PpoAgent(object):
     def collect_random_statistics(self, num_timesteps):
         #Initializes observation normalization with data from random agent.
         all_ob = []
-        for lump in range(self.I.nlump):
+        for lump in range(self.I.nlump):    # self.I.nlump:1
             all_ob.append(self.I.venvs[lump].reset())
-        for step in range(num_timesteps):
+        for step in range(num_timesteps):   # num_timestepts: 6400
             for lump in range(self.I.nlump):
-                acs = np.random.randint(low=0, high=self.ac_space.n, size=(self.I.lump_stride,))
+                # acs = np.random.randint(low=0, high=self.ac_space.n, size=(self.I.lump_stride,))
+                acs = np.asarray([self.ac_space.sample() for i in range(self.I.lump_stride)])   # self.I.lump_stride: 1
                 self.I.venvs[lump].step_async(acs)
-                ob, _, _, _ = self.I.venvs[lump].step_wait()
+                ob, _, _, _ = self.I.venvs[lump].step_wait()    # (1, ob_shape): 1 == I.lump_stride
                 all_ob.append(ob)
                 if len(all_ob) % (128 * self.I.nlump) == 0:
-                    ob_ = np.asarray(all_ob).astype(np.float32).reshape((-1, *self.ob_space.shape))
-                    self.stochpol.ob_rms.update(ob_[:,:,:,-1:])
+                    # ob_space.shape: (17, ), ob_rms: (17,), ob_: (128, 17, 1)
+                    # ob_space.sh:(84, 84, 4), ob_rms: (84, 84, 1), ob_: (128, 84, 84, 4):
+                    ob_ = np.asarray(all_ob).astype(np.float32).reshape((-1,) + tuple(self.ob_space.shape))
+                    if len(ob_.shape) == 4:
+                        self.stochpol.ob_rms.update(ob_[:,:,:,-1:])
+                    else:
+                        self.stochpol.ob_rms.update(ob_)    #(128, 17)
                     all_ob.clear()
 
     def stop_interaction(self):
@@ -242,16 +248,16 @@ class PpoAgent(object):
         local_best_rets = MPI.COMM_WORLD.allgather(self.local_best_ret)
         n_rooms = sum(MPI.COMM_WORLD.allgather([len(self.local_rooms)]), [])
 
-        if MPI.COMM_WORLD.Get_rank() == 0:
-            logger.info(f"Rooms visited {self.rooms}")
-            logger.info(f"Best return {self.best_ret}")
-            logger.info(f"Best local return {sorted(local_best_rets)}")
-            logger.info(f"eprews {sorted(eprews)}")
-            logger.info(f"n_rooms {sorted(n_rooms)}")
-            logger.info(f"Extrinsic coefficient {self.ext_coeff}")
-            logger.info(f"Gamma {self.gamma}")
-            logger.info(f"Gamma ext {self.gamma_ext}")
-            logger.info(f"All scores {sorted(self.scores)}")
+        # if MPI.COMM_WORLD.Get_rank() == 0:
+        #     logger.info(f"Rooms visited {self.rooms}")
+        #     logger.info(f"Best return {self.best_ret}")
+        #     logger.info(f"Best local return {sorted(local_best_rets)}")
+        #     logger.info(f"eprews {sorted(eprews)}")
+        #     logger.info(f"n_rooms {sorted(n_rooms)}")
+        #     logger.info(f"Extrinsic coefficient {self.ext_coeff}")
+        #     logger.info(f"Gamma {self.gamma}")
+        #     logger.info(f"Gamma ext {self.gamma_ext}")
+        #     logger.info(f"All scores {sorted(self.scores)}")
 
 
         #Normalize intrinsic rewards.
@@ -312,8 +318,8 @@ class PpoAgent(object):
             vpredextstd  = self.I.buf_vpreds_ext.std(), # previously not there
             ev_int = np.clip(explained_variance(self.I.buf_vpreds_int.ravel(), rets_int.ravel()), -1, None),
             ev_ext = np.clip(explained_variance(self.I.buf_vpreds_ext.ravel(), rets_ext.ravel()), -1, None),
-            rooms = SemicolonList(self.rooms),
-            n_rooms = len(self.rooms),
+            # rooms = SemicolonList(self.rooms),
+            # n_rooms = len(self.rooms),
             best_ret = self.best_ret,
             reset_counter = self.I.reset_counter
         )
@@ -340,6 +346,8 @@ class PpoAgent(object):
 
         #Create feeddict for optimization.
         envsperbatch = self.I.nenvs // self.nminibatches
+        nbatch = self.I.nenvs * self.nsteps
+        nbatch_train = nbatch // self.nminibatches
         ph_buf = [
             (self.stochpol.ph_ac, self.I.buf_acs),
             (self.ph_ret_int, rets_int),
@@ -363,36 +371,35 @@ class PpoAgent(object):
             logger.info(" "*6 + fmt_row(13, self.loss_names))
 
 
-        epoch = 0
-        start = 0
         #Optimizes on current data for several epochs.
-        while epoch < self.nepochs:
-            end = start + envsperbatch
-            mbenvinds = slice(start, end, None)
+        inds = np.arange(nbatch)
+        for epoch in range(self.nepochs):
+            for start in range(0, self.I.nenvs, envsperbatch):
+            # for start in range(0, nbatch, nbatch_train):
+                # np.random.shuffle(inds)
+                # end = start + nbatch_train
+                # mbenvinds = inds[slice(start, end)]
+                end = start + envsperbatch
+                mbenvinds = slice(start, end, None)
+                fd = {ph : buf[mbenvinds] for (ph, buf) in ph_buf}
+                fd.update({self.ph_lr : self.lr, self.ph_cliprange : self.cliprange})
+                fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][mbenvinds], self.I.buf_ob_last[None][mbenvinds, None]], 1)
+                # assert list(fd[self.stochpol.ph_ob[None]].shape) == [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape), \
+                #     [fd[self.stochpol.ph_ob[None]].shape, [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape)]
+                fd.update({self.stochpol.ph_mean:self.stochpol.ob_rms.mean, self.stochpol.ph_std:self.stochpol.ob_rms.var**0.5})
 
-            fd = {ph : buf[mbenvinds] for (ph, buf) in ph_buf}
-            fd.update({self.ph_lr : self.lr, self.ph_cliprange : self.cliprange})
-            fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][mbenvinds], self.I.buf_ob_last[None][mbenvinds, None]], 1)
-            assert list(fd[self.stochpol.ph_ob[None]].shape) == [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape), \
-                [fd[self.stochpol.ph_ob[None]].shape, [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape)]
-            fd.update({self.stochpol.ph_mean:self.stochpol.ob_rms.mean, self.stochpol.ph_std:self.stochpol.ob_rms.var**0.5})
-
-            ret = tf.get_default_session().run(self._losses+[self._train], feed_dict=fd)[:-1]
-            if not self.testing:
-                lossdict = dict(zip([n for n in self.loss_names], ret), axis=0)
-            else:
-                lossdict = {}
-            #Synchronize the lossdict across mpi processes, otherwise weights may be rolled back on one process but not another.
-            _maxkl = lossdict.pop('maxkl')
-            lossdict = dict_gather(self.comm_train, lossdict, op='mean')
-            maxmaxkl = dict_gather(self.comm_train, {"maxkl":_maxkl}, op='max')
-            lossdict["maxkl"] = maxmaxkl["maxkl"]
-            if verbose and self.is_log_leader:
-                logger.info("%i:%03i %s" % (epoch, start, fmt_row(13, [lossdict[n] for n in self.loss_names])))
-            start += envsperbatch
-            if start == self.I.nenvs:
-                epoch += 1
-                start = 0
+                ret = tf.get_default_session().run(self._losses+[self._train], feed_dict=fd)[:-1]
+                if not self.testing:
+                    lossdict = dict(zip([n for n in self.loss_names], ret), axis=0)
+                else:
+                    lossdict = {}
+                #Synchronize the lossdict across mpi processes, otherwise weights may be rolled back on one process but not another.
+                _maxkl = lossdict.pop('maxkl')
+                lossdict = dict_gather(self.comm_train, lossdict, op='mean')
+                maxmaxkl = dict_gather(self.comm_train, {"maxkl":_maxkl}, op='max')
+                lossdict["maxkl"] = maxmaxkl["maxkl"]
+                if verbose and self.is_log_leader:
+                    logger.info("%i:%03i %s" % (epoch, start, fmt_row(13, [lossdict[n] for n in self.loss_names])))
 
         if self.is_train_leader:
             self.I.stats["n_updates"] += 1
@@ -438,18 +445,23 @@ class PpoAgent(object):
                     epinfos.append(info['episode'])
                     info_with_places = info['episode']
                     try:
-                        info_with_places['places'] = info['episode']['visited_rooms']
-                    except:
-                        import ipdb; ipdb.set_trace()
+                        # info_with_places['places'] = info['episode']['visited_rooms']
+                        info_with_places['places'] = [0.0]
+                    except :
+                        # import ipdb; ipdb.set_trace()
+                        pass
                     self.I.buf_epinfos[env_pos_in_lump+l*self.I.lump_stride][t] = info_with_places
 
             sli = slice(l * self.I.lump_stride, (l + 1) * self.I.lump_stride)
             memsli = slice(None) if self.I.mem_state is NO_STATES else sli
             dict_obs = self.stochpol.ensure_observation_is_dict(obs)
-            with logger.ProfileKV("policy_inference"):
+            with logger.profile_kv("policy_inference"):
                 #Calls the policy and value function on current observation.
-                acs, vpreds_int, vpreds_ext, nlps, self.I.mem_state[memsli], ent = self.stochpol.call(dict_obs, news, self.I.mem_state[memsli],
-                                                                                                               update_obs_stats=self.update_ob_stats_every_step)
+                # a, vpred_int, vpred_ext, nlp, newstate, ent
+                acs, vpreds_int, vpreds_ext, nlps, self.I.mem_state[memsli], ent = self.stochpol.call(
+                    dict_obs, news, self.I.mem_state[memsli],
+                    update_obs_stats=self.update_ob_stats_every_step
+                )
             self.env_step(l, acs)
 
             #Update buffer with transition.
@@ -476,8 +488,9 @@ class PpoAgent(object):
                 for k in self.stochpol.ph_ob_keys:
                     self.I.buf_ob_last[k][sli] = dict_nextobs[k]
                 self.I.buf_new_last[sli] = nextnews
-                with logger.ProfileKV("policy_inference"):
-                    _, self.I.buf_vpred_int_last[sli], self.I.buf_vpred_ext_last[sli], _, _, _ = self.stochpol.call(dict_nextobs, nextnews, self.I.mem_state[memsli], update_obs_stats=False)
+                with logger.profile_kv("policy_inference"):
+                    _, self.I.buf_vpred_int_last[sli], self.I.buf_vpred_ext_last[sli], _, _, _ = self.stochpol.call(
+                        dict_nextobs, nextnews, self.I.mem_state[memsli], update_obs_stats=False)
                 self.I.buf_rews_ext[sli, t] = rews
 
             #Calcuate the intrinsic rewards for the rollout.
@@ -490,8 +503,11 @@ class PpoAgent(object):
 
             if not self.update_ob_stats_every_step:
                 #Update observation normalization parameters after the rollout is completed.
-                obs_ = self.I.buf_obs[None].astype(np.float32)
-                self.stochpol.ob_rms.update(obs_.reshape((-1, *obs_.shape[2:]))[:,:,:,-1:])
+                obs_ = self.I.buf_obs[None].astype(np.float32)     # (1, 128, 17)
+                obs_ = obs_.reshape((-1, *obs_.shape[2:]))
+                if len(obs_.shape) == 4:
+                    obs_ = obs_[:,:,:,-1:]
+                self.stochpol.ob_rms.update(obs_)
             if not self.testing:
                 update_info = self.update()
             else:
