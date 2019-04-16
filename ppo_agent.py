@@ -93,7 +93,7 @@ class PpoAgent(object):
     def __init__(self, *, scope,
                  ob_space, ac_space,
                  stochpol_fn,
-                 nsteps, nepochs=4, nminibatches=1,
+                 nsteps=2048, nepochs=4, nminibatches=64,
                  gamma=0.99,
                  gamma_ext=0.99,
                  lam=0.95,
@@ -343,11 +343,14 @@ class PpoAgent(object):
         self.recorder.record(bufs=to_record,
                              infos=self.I.buf_epinfos)
 
-
+        origin_paper = True
         #Create feeddict for optimization.
-        envsperbatch = self.I.nenvs // self.nminibatches
-        nbatch = self.I.nenvs * self.nsteps
-        nbatch_train = nbatch // self.nminibatches
+        if origin_paper:
+            envsperbatch = self.I.nenvs // self.nminibatches
+        else:
+            nbatch = self.I.nenvs * self.nsteps
+            nbatch_train = nbatch // self.nminibatches
+            inds = np.arange(nbatch)
         ph_buf = [
             (self.stochpol.ph_ac, self.I.buf_acs),
             (self.ph_ret_int, rets_int),
@@ -355,11 +358,12 @@ class PpoAgent(object):
             (self.ph_oldnlp, self.I.buf_nlps),
             (self.ph_adv, self.I.buf_advs),
         ]
-        if self.I.mem_state is not NO_STATES:
-            ph_buf.extend([
-                (self.stochpol.ph_istate, self.I.seg_init_mem_state),
-                (self.stochpol.ph_new, self.I.buf_news),
-            ])
+        # this works for RNN policy; I ignore this.
+        # if self.I.mem_state is not NO_STATES:
+        #     ph_buf.extend([
+        #         # (self.stochpol.ph_istate, self.I.seg_init_mem_state),
+        #         (self.stochpol.ph_new, self.I.buf_news),
+        #     ])
 
         verbose = True
         if verbose and self.is_log_leader:
@@ -372,18 +376,38 @@ class PpoAgent(object):
 
 
         #Optimizes on current data for several epochs.
-        inds = np.arange(nbatch)
         for epoch in range(self.nepochs):
-            for start in range(0, self.I.nenvs, envsperbatch):
-            # for start in range(0, nbatch, nbatch_train):
-                # np.random.shuffle(inds)
-                # end = start + nbatch_train
-                # mbenvinds = inds[slice(start, end)]
-                end = start + envsperbatch
-                mbenvinds = slice(start, end, None)
-                fd = {ph : buf[mbenvinds] for (ph, buf) in ph_buf}
+            if origin_paper:
+                # for start in range(0, self.I.nenvs, envsperbatch):
+                start = 0
+                nbatch = 1
+                nbatch_train = 1
+            else:
+                np.random.shuffle(inds)
+            for start in range(0, nbatch, nbatch_train):
+                if origin_paper:
+                    end = start + envsperbatch
+                    mbenvinds = slice(start, end, None)
+                else:
+                    end = start + nbatch_train
+                    mbenvinds = inds[slice(start, end)]
+                fd = dict()
+                for t, (ph, buf) in enumerate(ph_buf):
+                    if origin_paper:
+                        fd[ph] = buf[mbenvinds]
+                    else:
+                        if t <= 4:
+                            fd[ph] = buf[0, mbenvinds]
+                        else:
+                            pass    # we ignore state
                 fd.update({self.ph_lr : self.lr, self.ph_cliprange : self.cliprange})
-                fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][mbenvinds], self.I.buf_ob_last[None][mbenvinds, None]], 1)
+                if origin_paper:
+                    fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][mbenvinds], self.I.buf_ob_last[None][mbenvinds, None]], 1)
+                else:
+                    # todo: there is still bugs for for baselines-style since slices will disturb the order of obs
+                    # todo: thus we need to care for self.I.buf_ob_last.
+                    fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][0, mbenvinds],
+                                                                   self.I.buf_ob_last[None][0]], 1)
                 # assert list(fd[self.stochpol.ph_ob[None]].shape) == [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape), \
                 #     [fd[self.stochpol.ph_ob[None]].shape, [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape)]
                 fd.update({self.stochpol.ph_mean:self.stochpol.ob_rms.mean, self.stochpol.ph_std:self.stochpol.ob_rms.var**0.5})

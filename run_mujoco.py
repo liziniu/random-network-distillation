@@ -48,6 +48,8 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
     gamma = hps.pop('gamma')
     policy = {'rnn': CnnGruPolicy,
               'cnn': CnnPolicy}[hps.pop('policy')]
+
+    origin_paper = True  # todo
     agent = PpoAgent(
         scope='ppo',
         ob_space=ob_space,
@@ -65,10 +67,10 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
         gamma_ext=hps.pop('gamma_ext'),
         lam=hps.pop('lam'),
         nepochs=hps.pop('nepochs'),
-        nminibatches=hps.pop('nminibatches'),
+        nminibatches=1 if origin_paper else 64,
         lr=hps.pop('lr'),
         cliprange=0.1,
-        nsteps=128,
+        nsteps=128 if origin_paper else 2048,
         ent_coef=0.001,
         max_grad_norm=hps.pop('max_grad_norm'),
         use_news=hps.pop("use_news"),
@@ -123,15 +125,20 @@ def main():
 
 
     args = parser.parse_args()
-    path = os.path.join("/home", "lizn", "openai", "rnd",
-                        datetime.datetime.now().strftime("ppo-rnd-{}-%Y-%m-%d-%H-%M-%S-%f".format(args.env)))
+    server = False
+    if not server:
+        path = "logs"
+    else:
+        path = os.path.join("/home", "lizn", "openai", "rnd",
+                            datetime.datetime.now().strftime("ppo-rnd-{}-%Y-%m-%d-%H-%M-%S-%f".format(args.env)))
     logger.configure(dir=path, format_strs=['stdout', 'log', 'csv'] if MPI.COMM_WORLD.Get_rank() == 0 else [])
     if MPI.COMM_WORLD.Get_rank() == 0:
         with open(os.path.join(logger.get_dir(), 'experiment_tag.txt'), 'w') as f:
             f.write(args.tag)
         # shutil.copytree(os.path.dirname(os.path.abspath(__file__)), os.path.join(logger.get_dir(), 'code'))
 
-    mpi_util.setup_mpi_gpus()
+    if server:
+        mpi_util.setup_mpi_gpus()
 
     seed = 10000 * args.seed + MPI.COMM_WORLD.Get_rank()
     set_global_seeds(seed)

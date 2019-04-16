@@ -141,8 +141,8 @@ class CnnPolicy(StochasticPolicy):
                 # pdparamsize = 64
                 Xtout = mlp(2, 64, tf.nn.tanh, layer_norm=False)(X)
                 pdparam = fc(Xtout, 'pd', nh=pdparamsize, init_scale=0.01)       # (?, 64)
-                vpred_int = fc(Xtout, 'vf_int', nh=1, init_scale=0.01)
-                vpred_ext = fc(Xtout, 'vf_ext', nh=1, init_scale=0.01)
+                vpred_int = fc(Xtout, 'vf_int', nh=1, init_scale=1.0)   # following baselines
+                vpred_ext = fc(Xtout, 'vf_ext', nh=1, init_scale=1.0)   # following baselines
 
                 pdparam = tf.reshape(pdparam, (sy_nenvs, sy_nsteps, pdparamsize))
                 vpred_int = tf.reshape(vpred_int, (sy_nenvs, sy_nsteps))
@@ -300,12 +300,12 @@ class CnnPolicy(StochasticPolicy):
         # self.ph_new: (?, ?); new: (1, ): True
         # self.ph_mean: (17, ), self.ob_rms.mean: (17,); self.ph_std: (17,), self.ob_rms.var: (17,)
         feed1 = {self.ph_ob[k]: dict_obs[k][:, None] for k in self.ph_ob_keys}
-        feed2 = {self.ph_istate: istate, self.ph_new: new[:, None].astype(np.float32)}
+        # feed2 = {self.ph_istate: istate, self.ph_new: new[:, None].astype(np.float32)}
         feed1.update({self.ph_mean: self.ob_rms.mean, self.ph_std: self.ob_rms.var ** 0.5})
         # for f in feed1:
         #     print(f)
         a, vpred_int, vpred_ext, nlp, newstate, ent = tf.get_default_session().run(
             [self.a_samp, self.vpred_int_rollout, self.vpred_ext_rollout, self.nlp_samp, self.snext_rollout,
              self.entropy_rollout],
-            feed_dict={**feed1, **feed2})
+            feed_dict=feed1)  # {**feed1, **feed2} note that we ignore state since this is no RNN
         return a[:, 0], vpred_int[:, 0], vpred_ext[:, 0], nlp[:, 0], newstate, ent[:, 0]
