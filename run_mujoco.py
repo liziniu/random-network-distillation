@@ -97,7 +97,7 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
 
 
 def add_env_params(parser):
-    parser.add_argument('--env', help='environment ID', default='HalfCheetah-v2')
+    parser.add_argument('--env', help='environment ID', default='Reacher-v2')
     parser.add_argument('--seed', help='RNG seed', type=int, default=0)
     parser.add_argument('--max_episode_steps', type=int, default=4500)
 
@@ -123,7 +123,8 @@ def main():
 
 
     args = parser.parse_args()
-    path = os.path.join("/home", "lizn", "openai", "rnd", datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S-%f"))
+    path = os.path.join("/home", "lizn", "openai", "rnd",
+                        datetime.datetime.now().strftime("ppo-rnd-{}-%Y-%m-%d-%H-%M-%S-%f".format(args.env)))
     logger.configure(dir=path, format_strs=['stdout', 'log', 'csv'] if MPI.COMM_WORLD.Get_rank() == 0 else [])
     if MPI.COMM_WORLD.Get_rank() == 0:
         with open(os.path.join(logger.get_dir(), 'experiment_tag.txt'), 'w') as f:
