@@ -108,7 +108,9 @@ class PpoAgent(object):
                  update_ob_stats_every_step=True,
                  int_coeff=None,
                  ext_coeff=None,
+                 origin_paper=None,
                  ):
+        self.origin_paper = origin_paper
         self.lr = lr
         self.ext_coeff = ext_coeff
         self.int_coeff = int_coeff
@@ -343,13 +345,13 @@ class PpoAgent(object):
         self.recorder.record(bufs=to_record,
                              infos=self.I.buf_epinfos)
 
-        origin_paper = True
+        origin_paper = self.origin_paper
         #Create feeddict for optimization.
         if origin_paper:
             envsperbatch = self.I.nenvs // self.nminibatches
         else:
             nbatch = self.I.nenvs * self.nsteps
-            nbatch_train = nbatch // self.nminibatches
+            nbatch_train = self.nminibatches
             inds = np.arange(nbatch)
         ph_buf = [
             (self.stochpol.ph_ac, self.I.buf_acs),
@@ -376,6 +378,11 @@ class PpoAgent(object):
 
 
         #Optimizes on current data for several epochs.
+        if not origin_paper:
+            assert self.I.nenvs == 1
+            # sli = slice
+            # buf_obs[None]: (1, 256, 11); self.I.buf_ob_last[None][None]: (1, 1, 11)
+            array_obs = np.concatenate([self.I.buf_obs[None], self.I.buf_ob_last[None][None]], 1)
         for epoch in range(self.nepochs):
             if origin_paper:
                 # for start in range(0, self.I.nenvs, envsperbatch):
@@ -397,17 +404,19 @@ class PpoAgent(object):
                         fd[ph] = buf[mbenvinds]
                     else:
                         if t <= 4:
-                            fd[ph] = buf[0, mbenvinds]
+                            fd[ph] = buf[:, mbenvinds]
                         else:
                             pass    # we ignore state
                 fd.update({self.ph_lr : self.lr, self.ph_cliprange : self.cliprange})
                 if origin_paper:
+                    # stochpol.ph_ob: (?, ?, 11); I.buf_obs: (1, 128, 11); I.buf_ob_last: (1, 11)
+                    # final: (1, 129, 11)
                     fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][mbenvinds], self.I.buf_ob_last[None][mbenvinds, None]], 1)
                 else:
                     # todo: there is still bugs for for baselines-style since slices will disturb the order of obs
                     # todo: thus we need to care for self.I.buf_ob_last.
-                    fd[self.stochpol.ph_ob[None]] = np.concatenate([self.I.buf_obs[None][0, mbenvinds],
-                                                                   self.I.buf_ob_last[None][0]], 1)
+                    fd[self.stochpol.ph_ob[None]] = np.concatenate(
+                        [self.I.buf_obs[None][:, mbenvinds], self.I.buf_ob_last[None][None]], 1)
                 # assert list(fd[self.stochpol.ph_ob[None]].shape) == [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape), \
                 #     [fd[self.stochpol.ph_ob[None]].shape, [self.I.nenvs//self.nminibatches, self.nsteps + 1] + list(self.ob_space.shape)]
                 fd.update({self.stochpol.ph_mean:self.stochpol.ob_rms.mean, self.stochpol.ph_std:self.stochpol.ob_rms.var**0.5})

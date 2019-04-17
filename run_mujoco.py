@@ -24,7 +24,7 @@ def make_mujoco_env(env_id, seed, reward_scale=1.0):
     return env
 
 
-def train(*, env_id, num_env, hps, num_timesteps, seed):
+def train(*, origin_paper, env_id, num_env, hps, num_timesteps, seed):
     # venv = VecFrameStack(
     #     make_atari_env(env_id, num_env, seed, wrapper_kwargs=dict(),
     #                    start_index=num_env * MPI.COMM_WORLD.Get_rank(),
@@ -49,7 +49,6 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
     policy = {'rnn': CnnGruPolicy,
               'cnn': CnnPolicy}[hps.pop('policy')]
 
-    origin_paper = True  # todo
     agent = PpoAgent(
         scope='ppo',
         ob_space=ob_space,
@@ -67,7 +66,7 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
         gamma_ext=hps.pop('gamma_ext'),
         lam=hps.pop('lam'),
         nepochs=hps.pop('nepochs'),
-        nminibatches=1 if origin_paper else 64,
+        nminibatches=1 if origin_paper else 4,
         lr=hps.pop('lr'),
         cliprange=0.1,
         nsteps=128 if origin_paper else 2048,
@@ -78,6 +77,7 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
         update_ob_stats_every_step=hps.pop('update_ob_stats_every_step'),
         int_coeff=hps.pop('int_coeff'),
         ext_coeff=hps.pop('ext_coeff'),
+        origin_paper=origin_paper,
     )
     agent.start_interaction([venv])
     if hps.pop('update_ob_stats_from_random_agent'):
@@ -99,7 +99,7 @@ def train(*, env_id, num_env, hps, num_timesteps, seed):
 
 
 def add_env_params(parser):
-    parser.add_argument('--env', help='environment ID', default='Reacher-v2')
+    parser.add_argument('--env', help='environment ID', default='HalfCheetah-v2')
     parser.add_argument('--seed', help='RNG seed', type=int, default=0)
     parser.add_argument('--max_episode_steps', type=int, default=4500)
 
@@ -123,9 +123,10 @@ def main():
     parser.add_argument('--ext_coeff', type=float, default=2.)
     parser.add_argument('--dynamics_bonus', type=int, default=0)
 
-
+    # todo: change the following two parameters when you run your local machine or server
+    origin_paper = False
+    server = True
     args = parser.parse_args()
-    server = False
     if not server:
         path = "logs"
     else:
@@ -165,7 +166,7 @@ def main():
     )
 
     tf_util.make_session(make_default=True)
-    train(env_id=args.env, num_env=args.num_env, seed=seed,
+    train(origin_paper=origin_paper, env_id=args.env, num_env=args.num_env, seed=seed,
         num_timesteps=args.num_timesteps, hps=hps)
 
 
