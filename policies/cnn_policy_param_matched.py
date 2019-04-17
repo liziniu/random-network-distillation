@@ -203,7 +203,7 @@ class CnnPolicy(StochasticPolicy):
                 xrp = tf.cast(xrp, tf.float32)
                 xrp = tf.clip_by_value((xrp - self.ph_mean) / self.ph_std, -5.0, 5.0)
                 with tf.variable_scope("rnd_prediction"):
-                    xrp = mlp(4, 64, tf.nn.relu)(xrp)
+                    xrp = mlp(4, 64, tf.nn.tanh)(xrp)
                     X_r_hat = fc(xrp, 'mlp_fc4', nh=10, init_scale=np.sqrt(2))
 
         self.feat_var = tf.reduce_mean(tf.nn.moments(X_r, axes=[0])[1])

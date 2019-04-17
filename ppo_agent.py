@@ -352,7 +352,7 @@ class PpoAgent(object):
             envsperbatch = self.I.nenvs // self.nminibatches
         else:
             nbatch = self.I.nenvs * self.nsteps
-            nbatch_train = self.nminibatches
+            nbatch_train = nbatch // self.nminibatches
             inds = np.arange(nbatch)
         ph_buf = [
             (self.stochpol.ph_ac, self.I.buf_acs),
