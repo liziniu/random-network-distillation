@@ -93,13 +93,14 @@ class PpoAgent(object):
     def __init__(self, *, scope,
                  ob_space, ac_space,
                  stochpol_fn,
-                 nsteps=2048, nepochs=4, nminibatches=64,
+                 nsteps=2048, nepochs=4,
+                 nminibatches=64,  # 4
                  gamma=0.99,
                  gamma_ext=0.99,
                  lam=0.95,
                  ent_coef=0,
                  cliprange=0.2,
-                 max_grad_norm=1.0,
+                 max_grad_norm=1.0, # 0.5,
                  vf_coef=1.0,
                  lr=30e-5,
                  adam_hps=None,
@@ -108,7 +109,7 @@ class PpoAgent(object):
                  update_ob_stats_every_step=True,
                  int_coeff=None,
                  ext_coeff=None,
-                 origin_paper=None,
+                 origin_paper=None
                  ):
         self.origin_paper = origin_paper
         self.lr = lr
@@ -326,7 +327,7 @@ class PpoAgent(object):
             reset_counter = self.I.reset_counter
         )
 
-        info[f'mem_available'] = psutil.virtual_memory().available
+        info['mem_available'] = psutil.virtual_memory().available
 
         to_record = {'acs': self.I.buf_acs,
                      'rews_int': self.I.buf_rews_int,

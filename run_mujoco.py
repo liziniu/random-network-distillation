@@ -54,7 +54,7 @@ def train(*, origin_paper, env_id, num_env, hps, num_timesteps, seed):
         ob_space=ob_space,
         ac_space=ac_space,
         stochpol_fn=functools.partial(
-            policy,
+                policy,
                 scope='pol',
                 ob_space=ob_space,
                 ac_space=ac_space,
@@ -66,11 +66,11 @@ def train(*, origin_paper, env_id, num_env, hps, num_timesteps, seed):
         gamma_ext=hps.pop('gamma_ext'),
         lam=hps.pop('lam'),
         nepochs=hps.pop('nepochs'),
-        nminibatches=1 if origin_paper else 4,
+        nminibatches=hps.pop('nminibatches'),
         lr=hps.pop('lr'),
-        cliprange=0.1,
-        nsteps=128 if origin_paper else 2048,
-        ent_coef=0.001,
+        cliprange=hps.pop('cliprange'),
+        nsteps=hps.pop('nsteps'),
+        ent_coef=hps.pop('ent_coef'),
         max_grad_norm=hps.pop('max_grad_norm'),
         use_news=hps.pop("use_news"),
         comm=MPI.COMM_WORLD if MPI.COMM_WORLD.Get_size() > 1 else None,
@@ -105,6 +105,8 @@ def add_env_params(parser):
 
 
 def main():
+    from baselines.common.misc_util import boolean_flag
+
     parser = arg_parser()
     add_env_params(parser)
     parser.add_argument('--num-timesteps', type=int, default=int(1e6))
@@ -122,11 +124,28 @@ def main():
     parser.add_argument('--int_coeff', type=float, default=1.)
     parser.add_argument('--ext_coeff', type=float, default=2.)
     parser.add_argument('--dynamics_bonus', type=int, default=0)
+    parser.add_argument('--nminibatches', type=int, default=1)
+    parser.add_argument('--nsteps', type=int, default=128)
+    parser.add_argument('--max_grad_norm', type=float, default=0)
+    parser.add_argument('--lr', type=float, default=0.0001)
+    parser.add_argument('--ent_coef', type=float, default=0.001)
+    parser.add_argument('--cliprange', type=float, default=0.1)
+    boolean_flag(parser, 'origin_paper', default=False)
+    boolean_flag(parser, 'server', default=False)
 
     # todo: change the following two parameters when you run your local machine or server
-    origin_paper = False
-    server = True
+
     args = parser.parse_args()
+    server = args.server
+    origin_paper = args.origin_paper
+    if not origin_paper:
+        args.nminibatches = 4
+        args.nsteps = 2048
+        args.max_grad_norm = 0.5
+        args.lr = 3e-4
+        args.ent_coef = 0
+        args.cliprange = 0.2
+
     if not server:
         path = "logs"
     else:
@@ -136,7 +155,6 @@ def main():
     if MPI.COMM_WORLD.Get_rank() == 0:
         with open(os.path.join(logger.get_dir(), 'experiment_tag.txt'), 'w') as f:
             f.write(args.tag)
-        # shutil.copytree(os.path.dirname(os.path.abspath(__file__)), os.path.join(logger.get_dir(), 'code'))
 
     if server:
         mpi_util.setup_mpi_gpus()
@@ -146,10 +164,11 @@ def main():
 
     hps = dict(
         frame_stack=4,
-        nminibatches=1,   # 4
+        ent_coef=args.ent_coef,
+        nminibatches=args.nminibatches,
         nepochs=4,
-        lr=0.0001,
-        max_grad_norm=0.0,
+        lr=args.lr,
+        max_grad_norm=args.max_grad_norm,
         use_news=args.use_news,
         gamma=args.gamma,
         gamma_ext=args.gamma_ext,
@@ -162,7 +181,10 @@ def main():
         policy=args.policy,
         int_coeff=args.int_coeff,
         ext_coeff=args.ext_coeff,
-        dynamics_bonus = args.dynamics_bonus
+        dynamics_bonus=args.dynamics_bonus,
+        cliprange=args.cliprange,
+        nsteps=args.nsteps
+
     )
 
     tf_util.make_session(make_default=True)
