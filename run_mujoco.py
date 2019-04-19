@@ -186,7 +186,8 @@ def main():
         nsteps=args.nsteps
 
     )
-
+    logger.info("training parameters:")
+    logger.info(str(hps))
     tf_util.make_session(make_default=True)
     train(origin_paper=origin_paper, env_id=args.env, num_env=args.num_env, seed=seed,
         num_timesteps=args.num_timesteps, hps=hps)
