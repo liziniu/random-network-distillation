@@ -315,6 +315,8 @@ class PpoAgent(object):
             rewintmean_norm = self.mean_int_rew, # previously rewintmean
             rewintmax_norm = self.max_int_rew, # previously rewintmax
             rewintstd_unnorm  = rewstd, # previously rewstd
+            rewext_mean = self.I.buf_rews_ext.mean(),
+            rewext_std = self.I.buf_rews_ext.std(),
             vpredintmean = self.I.buf_vpreds_int.mean(), # previously vpredmean
             vpredintstd  = self.I.buf_vpreds_int.std(), # previously vrpedstd
             vpredextmean = self.I.buf_vpreds_ext.mean(), # previously not there
