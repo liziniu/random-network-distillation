@@ -268,7 +268,7 @@ class PpoAgent(object):
         self.I.rff_rms_int.update(rffs_int.ravel())
         rews_int = self.I.buf_rews_int / np.sqrt(self.I.rff_rms_int.var)
         self.mean_int_rew = np.mean(rews_int)
-        self.std_int_rew = np.mean(rews_int)
+        self.std_int_rew = np.std(rews_int)
         self.max_int_rew = np.max(rews_int)
 
         #Don't normalize extrinsic rewards.

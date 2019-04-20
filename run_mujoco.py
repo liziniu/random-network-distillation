@@ -139,7 +139,7 @@ def main():
     server = args.server
     origin_paper = args.origin_paper
     if not origin_paper:
-        args.nminibatches = 4
+        args.nminibatches = 32
         args.nsteps = 2048
         args.max_grad_norm = 0.5
         args.lr = 3e-4
@@ -166,7 +166,7 @@ def main():
         frame_stack=4,
         ent_coef=args.ent_coef,
         nminibatches=args.nminibatches,
-        nepochs=4,
+        nepochs=4 if origin_paper else 10,
         lr=args.lr,
         max_grad_norm=args.max_grad_norm,
         use_news=args.use_news,
