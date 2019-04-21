@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import functools
 import os
-
+from multiprocessing import Process
 from baselines import logger
 from mpi4py import MPI
 import mpi_util
@@ -12,6 +12,7 @@ from policies.cnn_policy_param_matched import CnnPolicy
 from ppo_agent import PpoAgent
 from utils import set_global_seeds
 from vec_env import VecFrameStack
+from copy import deepcopy
 import datetime
 from baselines.common.vec_env import VecNormalize
 from baselines.common.cmd_util import make_vec_env
@@ -104,38 +105,7 @@ def add_env_params(parser):
     parser.add_argument('--max_episode_steps', type=int, default=4500)
 
 
-def main():
-    from baselines.common.misc_util import boolean_flag
-
-    parser = arg_parser()
-    add_env_params(parser)
-    parser.add_argument('--num-timesteps', type=int, default=int(1e6))
-    parser.add_argument('--num_env', type=int, default=1)
-    parser.add_argument('--use_news', type=int, default=0)
-    parser.add_argument('--gamma', type=float, default=0.99)
-    parser.add_argument('--gamma_ext', type=float, default=0.99)
-    parser.add_argument('--lam', type=float, default=0.95)
-    parser.add_argument('--update_ob_stats_every_step', type=int, default=0)
-    parser.add_argument('--update_ob_stats_independently_per_gpu', type=int, default=0)
-    parser.add_argument('--update_ob_stats_from_random_agent', type=int, default=1)
-    parser.add_argument('--proportion_of_exp_used_for_predictor_update', type=float, default=1.)
-    parser.add_argument('--tag', type=str, default='')
-    parser.add_argument('--policy', type=str, default='cnn', choices=['cnn', 'rnn'])
-    parser.add_argument('--int_coeff', type=float, default=1.)
-    parser.add_argument('--ext_coeff', type=float, default=2.)
-    parser.add_argument('--dynamics_bonus', type=int, default=0)
-    parser.add_argument('--nminibatches', type=int, default=1)
-    parser.add_argument('--nsteps', type=int, default=128)
-    parser.add_argument('--max_grad_norm', type=float, default=0)
-    parser.add_argument('--lr', type=float, default=0.0001)
-    parser.add_argument('--ent_coef', type=float, default=0.001)
-    parser.add_argument('--cliprange', type=float, default=0.1)
-    boolean_flag(parser, 'origin_paper', default=False)
-    boolean_flag(parser, 'server', default=False)
-
-    # todo: change the following two parameters when you run your local machine or server
-
-    args = parser.parse_args()
+def main(args):
     server = args.server
     origin_paper = args.origin_paper
     if not origin_paper:
@@ -194,4 +164,52 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    from baselines.common.misc_util import boolean_flag
+
+    parser = arg_parser()
+    add_env_params(parser)
+    parser.add_argument('--num-timesteps', type=int, default=int(1e6))
+    parser.add_argument('--num_env', type=int, default=1)
+    parser.add_argument('--use_news', type=int, default=0)
+    parser.add_argument('--gamma', type=float, default=0.99)
+    parser.add_argument('--gamma_ext', type=float, default=0.99)
+    parser.add_argument('--lam', type=float, default=0.95)
+    parser.add_argument('--update_ob_stats_every_step', type=int, default=0)
+    parser.add_argument('--update_ob_stats_independently_per_gpu', type=int, default=0)
+    parser.add_argument('--update_ob_stats_from_random_agent', type=int, default=1)
+    parser.add_argument('--proportion_of_exp_used_for_predictor_update', type=float, default=1.)
+    parser.add_argument('--tag', type=str, default='')
+    parser.add_argument('--policy', type=str, default='cnn', choices=['cnn', 'rnn'])
+    parser.add_argument('--int_coeff', type=float, default=1.)
+    parser.add_argument('--ext_coeff', type=float, default=2.)
+    parser.add_argument('--dynamics_bonus', type=int, default=0)
+    parser.add_argument('--nminibatches', type=int, default=1)
+    parser.add_argument('--nsteps', type=int, default=128)
+    parser.add_argument('--max_grad_norm', type=float, default=0)
+    parser.add_argument('--lr', type=float, default=0.0001)
+    parser.add_argument('--ent_coef', type=float, default=0.001)
+    parser.add_argument('--cliprange', type=float, default=0.1)
+    boolean_flag(parser, 'origin_paper', default=False)
+    boolean_flag(parser, 'server', default=False)
+    boolean_flag(parser, 'all_env', default=False)
+    # todo: change the following two parameters when you run your local machine or server
+
+    args = parser.parse_args()
+
+    list_p = []
+    list_env = ["HalfCheetah-v2", "Hopper-v2", "Swimmer-v2", "InvertedDoublePendulum-v2", "Reacher-v2",
+                "Walker2d-v2", "Pusher-v2"] if args.all_env else [args.env]
+    for env in list_env:
+        _args = deepcopy(args)
+        _args.env = env
+        p = Process(target=main, args=(_args, ))
+        list_p.append((env, p))
+        p.start()
+        print("============================================")
+        print("{} start!".format(env))
+        print("============================================")
+    for (env, p) in list_p:
+        p.join()
+        print("============================================")
+        print("{} end!".format(env))
+        print("============================================")
